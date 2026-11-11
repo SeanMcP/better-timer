@@ -19,12 +19,13 @@
     padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
              max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
   main[hidden] { display: none; }
+  /* Keep controls phone-sized on wide screens; the running timer itself can go big */
+  #setup, #run .controls { inline-size: 100%; max-inline-size: 480px; margin-inline: auto; }
   button { font: inherit; color: var(--fg); background: var(--btn); border: 0;
     border-radius: 16px; font-size: 18px; cursor: pointer; padding: 0; }
   button:active { filter: brightness(1.5); }
   button[data-icon] { display: flex; align-items: center; justify-content: center; }
-  button svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 2;
-    stroke-linecap: round; stroke-linejoin: round; }
+  button svg { width: 28px; height: 28px; fill: currentColor; }
   #start svg { width: 32px; height: 32px; }
 
   /* A box that its .time child scales to fill (see fit()) */
@@ -43,8 +44,7 @@
 
   /* Running */
   #pie { width: 100%; height: 100%; }
-  #pie .slice { fill: none; stroke: var(--accent); stroke-width: 47; transform: rotate(-90deg) scaleY(-1);
-    transform-origin: center; }
+  #pie .slice { fill: var(--accent); }
   .visual #digits, #run:not(.visual) #pie { display: none; }
   .controls { display: grid; grid-auto-columns: 1fr; grid-auto-flow: column; gap: var(--gap); }
   .controls button { height: 64px; }
@@ -83,7 +83,7 @@
   <div id="face" class="box">
     <div id="digits" class="time"></div>
     <svg id="pie" viewBox="0 0 100 100">
-      <circle class="slice" cx="50" cy="50" r="23.5" pathLength="100" stroke-dasharray="100 100"/>
+      <path class="slice"/>
       <circle cx="50" cy="50" r="47" fill="none" stroke-width="3" style="stroke: var(--fg)"/>
     </svg>
   </div>
@@ -97,26 +97,25 @@
 <script>
 const $ = s => document.querySelector(s);
 
-// Icons from Lucide (lucide.dev, ISC license), 24x24 outline style
-const SPEAKER = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>';
+// Icons: Phosphor (phosphoricons.com, MIT), 256x256 grid.
+// Playback controls use the solid "fill" weight; everything else uses "bold" so line weights match.
 const ICONS = {
-  // Playback icons are filled solid
-  play: '<polygon fill="currentColor" points="6 3 20 12 6 21 6 3"/>',
-  pause: '<rect fill="currentColor" x="14" y="4" width="4" height="16" rx="1"/><rect fill="currentColor" x="6" y="4" width="4" height="16" rx="1"/>',
-  stop: '<rect fill="currentColor" x="5" y="5" width="14" height="14" rx="2"/>',
-  reset: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
-  cancel: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
-  delete: '<path d="M20 5H9l-7 7 7 7h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Z"/><path d="m18 9-6 6"/><path d="m12 9 6 6"/>',
-  visual: '<path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/>',
-  countdown: '<path d="M10 2h4"/><path d="m12 14 3-3"/><circle cx="12" cy="14" r="8"/>',
-  loud: SPEAKER + '<path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>',
-  quiet: SPEAKER + '<path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>',
-  silent: SPEAKER + '<path d="m22 9-6 6"/><path d="m16 9 6 6"/>',
-  maximize: '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
-  minimize: '<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>',
+  play: '<path d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"/>',
+  pause: '<path d="M216,48V208a16,16,0,0,1-16,16H160a16,16,0,0,1-16-16V48a16,16,0,0,1,16-16h40A16,16,0,0,1,216,48ZM96,32H56A16,16,0,0,0,40,48V208a16,16,0,0,0,16,16H96a16,16,0,0,0,16-16V48A16,16,0,0,0,96,32Z"/>',
+  stop: '<path d="M216,56V200a16,16,0,0,1-16,16H56a16,16,0,0,1-16-16V56A16,16,0,0,1,56,40H200A16,16,0,0,1,216,56Z"/>',
+  reset: '<path d="M228,128a100,100,0,0,1-98.66,100H128a99.39,99.39,0,0,1-68.62-27.29,12,12,0,0,1,16.48-17.45,76,76,0,1,0-1.57-109c-.13.13-.25.25-.39.37L54.89,92H72a12,12,0,0,1,0,24H24a12,12,0,0,1-12-12V56a12,12,0,0,1,24,0V76.72L57.48,57.06A100,100,0,0,1,228,128Z"/>',
+  cancel: '<path d="M208.49,191.51a12,12,0,0,1-17,17L128,145,64.49,208.49a12,12,0,0,1-17-17L111,128,47.51,64.49a12,12,0,0,1,17-17L128,111l63.51-63.52a12,12,0,0,1,17,17L145,128Z"/>',
+  delete: '<path d="M216,36H68.53a20.09,20.09,0,0,0-17.15,9.71L5.71,121.83a12,12,0,0,0,0,12.34l45.67,76.12A20.09,20.09,0,0,0,68.53,220H216a20,20,0,0,0,20-20V56A20,20,0,0,0,216,36Zm-4,160H70.8L30,128,70.8,60H212ZM103.51,143.51,119,128l-15.52-15.51a12,12,0,0,1,17-17L136,111l15.51-15.52a12,12,0,0,1,17,17L153,128l15.52,15.51a12,12,0,0,1-17,17L136,145l-15.51,15.52a12,12,0,0,1-17-17Z"/>',
+  visual: '<path d="M93.82,116.64A12,12,0,0,0,100,106.15V40.74A12,12,0,0,0,83,29.83,108.26,108.26,0,0,0,20,128c0,3.37.16,6.76.47,10.1a12,12,0,0,0,17.76,9.38ZM76,62.06v37L44.81,116.36A84.39,84.39,0,0,1,76,62.06ZM128,20a12,12,0,0,0-12,12v89.53L39.18,166.27a12,12,0,0,0-4.3,16.46A108,108,0,1,0,128,20Zm0,192a84.47,84.47,0,0,1-65.57-31.5L134,138.79a12,12,0,0,0,6-10.37V44.85A84,84,0,0,1,128,212Z"/>',
+  countdown: '<path d="M128,44a96,96,0,1,0,96,96A96.11,96.11,0,0,0,128,44Zm0,168a72,72,0,1,1,72-72A72.08,72.08,0,0,1,128,212ZM164.49,99.51a12,12,0,0,1,0,17l-28,28a12,12,0,0,1-17-17l28-28A12,12,0,0,1,164.49,99.51ZM92,16A12,12,0,0,1,104,4h48a12,12,0,0,1,0,24H104A12,12,0,0,1,92,16Z"/>',
+  loud: '<path d="M157.27,21.22a12,12,0,0,0-12.64,1.31L75.88,76H32A20,20,0,0,0,12,96v64a20,20,0,0,0,20,20H75.88l68.75,53.47A12,12,0,0,0,164,224V32A12,12,0,0,0,157.27,21.22ZM36,100H68v56H36Zm104,99.46L92,162.13V93.87l48-37.33ZM212,128a44,44,0,0,1-11,29.11,12,12,0,1,1-18-15.88,20,20,0,0,0,0-26.43,12,12,0,0,1,18-15.86A43.94,43.94,0,0,1,212,128Zm40,0a83.87,83.87,0,0,1-21.39,56,12,12,0,0,1-17.89-16,60,60,0,0,0,0-80,12,12,0,1,1,17.88-16A83.87,83.87,0,0,1,252,128Z"/>',
+  quiet: '<path d="M157.27,21.22a12,12,0,0,0-12.64,1.31L75.88,76H32A20,20,0,0,0,12,96v64a20,20,0,0,0,20,20H75.88l68.75,53.47A12,12,0,0,0,164,224V32A12,12,0,0,0,157.27,21.22ZM36,100H68v56H36Zm104,99.46L92,162.13V93.87l48-37.33ZM212,128a44,44,0,0,1-11,29.11,12,12,0,0,1-18-15.88,20,20,0,0,0,0-26.44,12,12,0,0,1,18-15.85A43.94,43.94,0,0,1,212,128Z"/>',
+  silent: '<path d="M157.27,21.22a12,12,0,0,0-12.64,1.31L75.88,76H32A20,20,0,0,0,12,96v64a20,20,0,0,0,20,20H75.88l68.75,53.47A12,12,0,0,0,164,224V32A12,12,0,0,0,157.27,21.22ZM36,100H68v56H36Zm104,99.47L92,162.12V93.88l48-37.34Zm108.49-55.95a12,12,0,0,1-17,17L216,145l-15.51,15.52a12,12,0,0,1-17-17L199,128l-15.52-15.51a12,12,0,0,1,17-17L216,111l15.51-15.51a12,12,0,0,1,17,17L233,128Z"/>',
+  maximize: '<path d="M220,48V96a12,12,0,0,1-24,0V77l-39.51,39.52a12,12,0,0,1-17-17L179,60H160a12,12,0,0,1,0-24h48A12,12,0,0,1,220,48ZM99.51,139.51,60,179V160a12,12,0,0,0-24,0v48a12,12,0,0,0,12,12H96a12,12,0,0,0,0-24H77l39.52-39.51a12,12,0,0,0-17-17Z"/>',
+  minimize: '<path d="M216.49,56.48,177,96h19a12,12,0,0,1,0,24H148a12,12,0,0,1-12-12V60a12,12,0,0,1,24,0V79l39.51-39.52a12,12,0,0,1,17,17ZM108,136H60a12,12,0,0,0,0,24H79L39.51,199.51a12,12,0,0,0,17,17L96,177v19a12,12,0,0,0,24,0V148A12,12,0,0,0,108,136Z"/>',
 };
 function setIcon(el, name, label) {
-  el.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
+  el.innerHTML = `<svg viewBox="0 0 256 256" aria-hidden="true">${ICONS[name]}</svg>`;
   if (label) el.setAttribute('aria-label', label);
   el.title = el.getAttribute('aria-label') || '';
 }
@@ -218,15 +217,26 @@ function tick() {
   if (ms <= 0 && !done) return finish();
   const rem = Math.max(0, ms), text = fmt(Math.ceil(rem / 1000));
   setText($('#digits'), text);
-  $('#pie .slice').style.strokeDasharray = `${(rem / total) * 100} 100`;
+  drawPie(rem / total);
   document.title = done ? 'Done!' : text + ' · Better Timer';
+}
+
+// Draw the red wedge for a 0..1 fraction, sweeping counterclockwise from 12 o'clock
+// (like a Time Timer). Its radius matches the ring's center line.
+const slice = $('#pie .slice');
+function drawPie(frac) {
+  const R = 47, f = Math.min(Math.max(frac, 0), 1);
+  if (f >= 1) return slice.setAttribute('d', `M50 ${50 - R}A${R} ${R} 0 1 0 50 ${50 + R}A${R} ${R} 0 1 0 50 ${50 - R}Z`);
+  if (f <= 0) return slice.setAttribute('d', '');
+  const a = f * 2 * Math.PI, x = 50 - R * Math.sin(a), y = 50 - R * Math.cos(a);
+  slice.setAttribute('d', `M50 50L50 ${50 - R}A${R} ${R} 0 ${f > 0.5 ? 1 : 0} 0 ${x} ${y}Z`);
 }
 
 // Redraw the pie every display frame so it shrinks smoothly. tick() still
 // handles digits and finishing, since animation frames pause in the background.
 function frame() {
   if (visual && !$('#run').hidden && !paused && !done) {
-    $('#pie .slice').style.strokeDasharray = `${Math.max(0, end - Date.now()) / total * 100} 100`;
+    drawPie(Math.max(0, end - Date.now()) / total);
   }
   requestAnimationFrame(frame);
 }

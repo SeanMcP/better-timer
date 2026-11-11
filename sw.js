@@ -1,5 +1,5 @@
 // Offline support: network first so updates show right away, cache as fallback.
-const CACHE = 'better-timer-v2';
+const CACHE = 'better-timer-v1';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', e => {
@@ -15,10 +15,12 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET' || !e.request.url.startsWith(self.location.origin)) return;
+  // Cache by URL without ?t=&m=&v= so any timer link works offline
+  const key = e.request.url.split('?')[0];
   e.respondWith(caches.open(CACHE).then(cache =>
     fetch(e.request).then(res => {
-      if (res.ok) cache.put(e.request, res.clone());
+      if (res.ok) cache.put(key, res.clone());
       return res;
-    }).catch(() => cache.match(e.request))
+    }).catch(() => cache.match(key))
   ));
 });
