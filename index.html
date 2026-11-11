@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111111">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Better Timer</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<style>
+  :root { --bg: #111; --fg: #eee; --dim: #666; --btn: rgb(255 255 255 / .12); --accent: #e53935; --gap: 10px; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font-family: system-ui, sans-serif; user-select: none; overscroll-behavior: none; }
+  main { height: 100dvh; display: flex; flex-direction: column; gap: var(--gap);
+    padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+             max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  main[hidden] { display: none; }
+  button { font: inherit; color: var(--fg); background: var(--btn); border: 0;
+    border-radius: 16px; font-size: 18px; cursor: pointer; padding: 0; }
+  button:active { filter: brightness(1.5); }
+  button[data-icon] { display: flex; align-items: center; justify-content: center; }
+  button svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round; }
+  #start svg { width: 32px; height: 32px; }
+
+  /* A box that its .time child scales to fill (see fit()) */
+  .box { flex: 1 1 0; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .time { font-variant-numeric: tabular-nums; font-weight: 300; line-height: 1; white-space: nowrap; }
+
+  /* Setup */
+  #entry.empty { color: var(--dim); }
+  .presets { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--gap); }
+  .presets button { height: 48px; font-size: 16px; }
+  .keypad { flex: 1.6 1 0; min-height: 0; display: grid; grid-template-columns: repeat(3, 1fr);
+    grid-auto-rows: 1fr; gap: var(--gap); }
+  .keypad button { font-size: clamp(24px, 5vh, 40px); }
+  #start { height: 72px; flex: none; background: var(--accent); font-size: 22px; font-weight: 600; }
+  #start:disabled { opacity: .3; }
+
+  /* Running */
+  #pie { width: 100%; height: 100%; }
+  #pie .slice { fill: none; stroke: var(--accent); stroke-width: 47; transform: rotate(-90deg) scaleY(-1);
+    transform-origin: center; }
+  .visual #digits, #run:not(.visual) #pie { display: none; }
+  .controls { display: grid; grid-auto-columns: 1fr; grid-auto-flow: column; gap: var(--gap); }
+  .controls button { height: 64px; }
+  .paused #digits, .paused #pie { opacity: .4; }
+  .paused #pause { background: var(--accent); font-weight: 600; }
+  .done { animation: flash 1s steps(1) infinite; }
+  @keyframes flash { 50% { background: var(--accent); } }
+</style>
+</head>
+<body>
+
+<main id="setup">
+  <div class="box"><div id="entry" class="time empty">00:00</div></div>
+  <div class="presets">
+    <button data-s="60">1m</button>
+    <button data-s="120">2m</button>
+    <button data-s="180">3m</button>
+    <button data-s="300">5m</button>
+    <button data-s="600">10m</button>
+  </div>
+  <div class="keypad">
+    <button>1</button><button>2</button><button>3</button>
+    <button>4</button><button>5</button><button>6</button>
+    <button>7</button><button>8</button><button>9</button>
+    <button>00</button><button>0</button><button data-k="del" data-icon="delete" aria-label="Delete"></button>
+  </div>
+  <button id="start" data-icon="play" aria-label="Start" disabled></button>
+</main>
+
+<main id="run" hidden>
+  <div class="controls">
+    <button id="mode" data-icon></button>
+    <button id="vol" data-icon></button>
+    <button id="fs" data-icon="maximize" aria-label="Full screen"></button>
+  </div>
+  <div id="face" class="box">
+    <div id="digits" class="time"></div>
+    <svg id="pie" viewBox="0 0 100 100">
+      <circle class="slice" cx="50" cy="50" r="23.5" pathLength="100" stroke-dasharray="100 100"/>
+      <circle cx="50" cy="50" r="47" fill="none" stroke-width="3" style="stroke: var(--fg)"/>
+    </svg>
+  </div>
+  <div class="controls">
+    <button id="pause" data-icon></button>
+    <button id="reset" data-icon="reset" aria-label="Reset"></button>
+    <button id="cancel" data-icon="cancel" aria-label="Cancel"></button>
+  </div>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+
+// Icons from Lucide (lucide.dev, ISC license), 24x24 outline style
+const SPEAKER = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>';
+const ICONS = {
+  // Playback icons are filled solid
+  play: '<polygon fill="currentColor" points="6 3 20 12 6 21 6 3"/>',
+  pause: '<rect fill="currentColor" x="14" y="4" width="4" height="16" rx="1"/><rect fill="currentColor" x="6" y="4" width="4" height="16" rx="1"/>',
+  stop: '<rect fill="currentColor" x="5" y="5" width="14" height="14" rx="2"/>',
+  reset: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
+  cancel: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  delete: '<path d="M20 5H9l-7 7 7 7h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Z"/><path d="m18 9-6 6"/><path d="m12 9 6 6"/>',
+  visual: '<path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/>',
+  countdown: '<path d="M10 2h4"/><path d="m12 14 3-3"/><circle cx="12" cy="14" r="8"/>',
+  loud: SPEAKER + '<path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>',
+  quiet: SPEAKER + '<path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>',
+  silent: SPEAKER + '<path d="m22 9-6 6"/><path d="m16 9 6 6"/>',
+  maximize: '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
+  minimize: '<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>',
+};
+function setIcon(el, name, label) {
+  el.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
+  if (label) el.setAttribute('aria-label', label);
+  el.title = el.getAttribute('aria-label') || '';
+}
+document.querySelectorAll('[data-icon]').forEach(b => b.dataset.icon && setIcon(b, b.dataset.icon));
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+
+// ---- Helpers ----
+const fmt = sec => {
+  const h = Math.floor(sec / 3600), m = Math.floor(sec / 60) % 60, s = sec % 60;
+  const p = n => String(n).padStart(2, '0');
+  return h ? `${h}:${p(m)}:${p(s)}` : `${m}:${p(s)}`;
+};
+
+// Scale text to fill its .box parent. Digits are tabular, so this only needs to
+// rerun when the character count or screen size changes.
+function fit(el) {
+  const box = el.parentElement;
+  if (!box.clientWidth || !el.offsetWidth) return; // hidden: refit when shown
+  el.style.fontSize = '100px';
+  const scale = Math.min(box.clientWidth / el.scrollWidth, box.clientHeight * 0.9 / el.scrollHeight);
+  el.style.fontSize = 100 * scale + 'px';
+}
+function setText(el, text) {
+  const refit = el.textContent.length !== text.length;
+  el.textContent = text;
+  if (refit) fit(el);
+}
+addEventListener('resize', () => { fit($('#entry')); fit($('#digits')); });
+
+// ---- Setup: Android-style digit entry (digits shift in from the right) ----
+let digits = '';
+const entrySeconds = () => {
+  const d = digits.padStart(6, '0');
+  return +d.slice(0, 2) * 3600 + +d.slice(2, 4) * 60 + +d.slice(4, 6);
+};
+function renderEntry() {
+  const d = digits.padStart(6, '0');
+  setText($('#entry'), digits.length > 4 ? `${d.slice(0, 2)}:${d.slice(2, 4)}:${d.slice(4)}` : `${d.slice(2, 4)}:${d.slice(4)}`);
+  $('#entry').classList.toggle('empty', !digits);
+  $('#start').disabled = !entrySeconds();
+}
+$('.keypad').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.k === 'del') digits = digits.slice(0, -1);
+  else digits = (digits + b.textContent).replace(/^0+/, '').slice(0, 6);
+  renderEntry();
+};
+$('.presets').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  start(+b.dataset.s);
+};
+$('#start').onclick = () => start(entrySeconds());
+
+// ---- Timer ----
+let total = 0, end = 0, left = 0, paused = false, done = false, loop, alarm, audio, lock;
+let visual = false;
+try { visual = localStorage.getItem('visual') === '1'; } catch {}
+
+// Alarm volume: three-way toggle, saved like the mode
+const VOLUMES = { loud: 0.15, quiet: 0.03, silent: 0 };
+let volume = 'loud';
+try { const saved = localStorage.getItem('volume'); if (Object.hasOwn(VOLUMES, saved)) volume = saved; } catch {}
+
+// Browsers only allow sound after a tap, so create/resume audio on any tap.
+function unlockAudio() {
+  audio ||= new (window.AudioContext || window.webkitAudioContext)();
+  if (audio.state === 'suspended') audio.resume();
+}
+addEventListener('pointerdown', unlockAudio);
+
+// Keep the URL in sync with the running timer so a reload/revisit restores it
+function setURL(sec) {
+  const q = sec ? `?t=${sec}&m=${visual ? 'visual' : 'countdown'}&v=${volume}` : '';
+  history.replaceState(null, '', location.pathname + q);
+}
+
+function start(sec) {
+  if (!sec) return;
+  setURL(sec);
+  total = sec * 1000; end = Date.now() + total; paused = done = false;
+  unlockAudio();
+  $('#setup').hidden = true; $('#run').hidden = false;
+  wake(true);
+  clearInterval(loop); loop = setInterval(tick, 100); tick(); fit($('#digits'));
+  renderButtons();
+}
+
+// Left button: Pause while running, Start while paused, Stop while ringing
+function renderButtons() {
+  if (done) setIcon($('#pause'), 'stop', 'Stop alarm');
+  else if (paused) setIcon($('#pause'), 'play', 'Start');
+  else setIcon($('#pause'), 'pause', 'Pause');
+  $('#run').classList.toggle('paused', paused && !done);
+}
+
+function tick() {
+  const ms = paused ? left : end - Date.now();
+  if (ms <= 0 && !done) return finish();
+  const rem = Math.max(0, ms), text = fmt(Math.ceil(rem / 1000));
+  setText($('#digits'), text);
+  $('#pie .slice').style.strokeDasharray = `${(rem / total) * 100} 100`;
+  document.title = done ? 'Done!' : text + ' · Better Timer';
+}
+
+// Redraw the pie every display frame so it shrinks smoothly. tick() still
+// handles digits and finishing, since animation frames pause in the background.
+function frame() {
+  if (visual && !$('#run').hidden && !paused && !done) {
+    $('#pie .slice').style.strokeDasharray = `${Math.max(0, end - Date.now()) / total * 100} 100`;
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+function finish() {
+  done = true; clearInterval(loop); tick();
+  document.body.classList.add('done');
+  renderButtons();
+  // Classic digital watch alarm: a 4 kHz piezo-style square wave,
+  // four quick beeps per burst, one burst per second.
+  const ring = () => {
+    navigator.vibrate?.([60, 65, 60, 65, 60, 65, 60]);
+    const level = VOLUMES[volume]; // read each burst so changes apply mid-alarm
+    if (level) [0, 0.125, 0.25, 0.375].forEach(t => {
+      const o = audio.createOscillator(), g = audio.createGain(), at = audio.currentTime + t;
+      o.type = 'square'; o.frequency.value = 4096;
+      o.connect(g); g.connect(audio.destination);
+      g.gain.setValueAtTime(0, at);
+      g.gain.linearRampToValueAtTime(level, at + 0.003); // tiny ramps avoid clicks
+      g.gain.setValueAtTime(level, at + 0.057);
+      g.gain.linearRampToValueAtTime(0, at + 0.06);
+      o.start(at); o.stop(at + 0.06);
+    });
+  };
+  ring(); alarm = setInterval(ring, 1000);
+}
+
+function stopAlarm() {
+  clearInterval(alarm); navigator.vibrate?.(0);
+  document.body.classList.remove('done');
+}
+
+$('#pause').onclick = () => {
+  if (done) return stop();
+  paused = !paused;
+  if (paused) left = end - Date.now(); else end = Date.now() + left;
+  renderButtons(); tick();
+};
+
+// Silence the alarm and wait at full time for Start
+function stop() {
+  stopAlarm();
+  done = false; paused = true; left = total;
+  clearInterval(loop); loop = setInterval(tick, 100);
+  renderButtons(); tick();
+}
+
+// Start over from the full time
+function reset() {
+  stopAlarm(); start(total / 1000);
+}
+
+// Back to the time entry page
+function exit() {
+  stopAlarm(); clearInterval(loop); wake(false);
+  done = false; paused = false;
+  $('#run').classList.remove('paused');
+  $('#run').hidden = true; $('#setup').hidden = false;
+  document.title = 'Better Timer';
+  setURL(0);
+  fit($('#entry'));
+}
+$('#reset').onclick = reset;
+$('#cancel').onclick = exit;
+
+// ---- Countdown / visual toggle (button or tap the face) ----
+function setMode(v, save = true) {
+  visual = v;
+  if (save) try { localStorage.setItem('visual', v ? '1' : '0'); } catch {}
+  if (!$('#run').hidden) setURL(total / 1000);
+  $('#run').classList.toggle('visual', v);
+  setIcon($('#mode'), v ? 'countdown' : 'visual', v ? 'Show countdown' : 'Show visual timer');
+  fit($('#digits'));
+}
+$('#mode').onclick = () => setMode(!visual);
+$('#face').onclick = () => done ? stop() : setMode(!visual);
+// URL params override the saved mode for this visit: ?m=visual|countdown
+const params = new URLSearchParams(location.search);
+const m = params.get('m');
+setMode(m === 'visual' ? true : m === 'countdown' ? false : visual, false);
+
+// ---- Volume toggle: Loud → Quiet → Silent (URL ?v= overrides for this visit) ----
+function setVolume(v, save = true) {
+  volume = v;
+  if (save) try { localStorage.setItem('volume', v); } catch {}
+  setIcon($('#vol'), v, `Volume: ${v}`);
+  if (!$('#run').hidden) setURL(total / 1000);
+}
+$('#vol').onclick = () => {
+  const order = Object.keys(VOLUMES);
+  setVolume(order[(order.indexOf(volume) + 1) % order.length]);
+};
+const v = params.get('v');
+setVolume(Object.hasOwn(VOLUMES, v) ? v : volume, false);
+
+// ---- Full screen ----
+$('#fs').onclick = () => document.fullscreenElement
+  ? document.exitFullscreen() : document.documentElement.requestFullscreen?.();
+document.addEventListener('fullscreenchange', () =>
+  document.fullscreenElement ? setIcon($('#fs'), 'minimize', 'Exit full screen') : setIcon($('#fs'), 'maximize', 'Full screen'));
+
+// ---- Keep screen on while a timer is showing ----
+async function wake(on) {
+  try {
+    if (on && !lock) { lock = await navigator.wakeLock.request('screen'); lock.onrelease = () => lock = null; }
+    if (!on && lock) { await lock.release(); lock = null; }
+  } catch {}
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && $('#setup').hidden) { wake(true); tick(); }
+});
+
+renderEntry();
+fit($('#entry'));
+
+// ?t=<seconds> loads a timer, paused at full time until you tap Start
+const t = Math.min(Math.floor(+params.get('t')), 359999); // max 99:59:59
+if (t > 0) { start(t); paused = true; left = total; renderButtons(); tick(); }
+</script>
+</body>
+</html>
