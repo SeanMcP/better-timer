@@ -1,6 +1,6 @@
 // Offline support: network first so updates show right away, cache as fallback.
 const CACHE = 'better-timer-v1';
-const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon.svg'];
+const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon.svg', 'apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)));
