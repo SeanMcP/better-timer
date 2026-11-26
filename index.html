@@ -11,7 +11,7 @@
 <link rel="icon" href="icon.svg">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <style>
-  :root { --bg: #111; --fg: #eee; --dim: #666; --btn: rgb(255 255 255 / .12); --accent: #e53935; --gap: 10px; }
+  :root { --bg: #111; --fg: #eee; --dim: #666; --btn: rgb(255 255 255 / .12); --accent: #e53935; --on-accent: #fff; --gap: 10px; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
     font-family: system-ui, sans-serif; user-select: none; overscroll-behavior: none; }
@@ -33,13 +33,17 @@
   .time { font-variant-numeric: tabular-nums; font-weight: 300; line-height: 1; white-space: nowrap; }
 
   /* Setup */
+  .colors { display: grid; grid-template-columns: repeat(8, 1fr); flex: none; }
+  .colors button { height: 40px; background: none; display: flex; align-items: center; justify-content: center; }
+  .colors button::after { content: ''; width: 28px; height: 28px; border-radius: 50%; background: var(--c); }
+  .colors [aria-checked="true"]::after { box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px var(--fg); }
   #entry.empty { color: var(--dim); }
   .presets { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--gap); }
   .presets button { height: 48px; font-size: 16px; }
   .keypad { flex: 1.6 1 0; min-height: 0; display: grid; grid-template-columns: repeat(3, 1fr);
     grid-auto-rows: 1fr; gap: var(--gap); }
   .keypad button { font-size: clamp(24px, 5vh, 40px); }
-  #start { height: 72px; flex: none; background: var(--accent); font-size: 22px; font-weight: 600; }
+  #start { height: 72px; flex: none; background: var(--accent); color: var(--on-accent); font-size: 22px; font-weight: 600; }
   #start:disabled { opacity: .3; }
 
   /* Running */
@@ -49,14 +53,16 @@
   .controls { display: grid; grid-auto-columns: 1fr; grid-auto-flow: column; gap: var(--gap); }
   .controls button { height: 64px; }
   .paused #digits, .paused #pie { opacity: .4; }
-  .paused #pause { background: var(--accent); font-weight: 600; }
+  .paused #pause { background: var(--accent); color: var(--on-accent); font-weight: 600; }
   .done { animation: flash 1s steps(1) infinite; }
-  @keyframes flash { 50% { background: var(--accent); } }
+  /* Swap --fg too so text, ring and icons stay readable on light accents */
+  @keyframes flash { 50% { background: var(--accent); --fg: var(--on-accent); } }
 </style>
 </head>
 <body>
 
 <main id="setup">
+  <div class="colors" role="radiogroup" aria-label="Accent color"></div>
   <div class="box"><div id="entry" class="time empty">00:00</div></div>
   <div class="presets">
     <button data-s="60">1m</button>
@@ -84,7 +90,7 @@
     <div id="digits" class="time"></div>
     <svg id="pie" viewBox="0 0 100 100">
       <path class="slice"/>
-      <circle cx="50" cy="50" r="47" fill="none" stroke-width="3" style="stroke: var(--fg)"/>
+      <circle cx="50" cy="50" r="47" fill="none" stroke-width="3" stroke="currentColor"/>
     </svg>
   </div>
   <div class="controls">
@@ -189,7 +195,7 @@ addEventListener('pointerdown', unlockAudio);
 
 // Keep the URL in sync with the running timer so a reload/revisit restores it
 function setURL(sec) {
-  const q = sec ? `?t=${sec}&m=${visual ? 'visual' : 'countdown'}&v=${volume}` : '';
+  const q = sec ? `?t=${sec}&m=${visual ? 'visual' : 'countdown'}&v=${volume}&c=${color}` : '';
   history.replaceState(null, '', location.pathname + q);
 }
 
@@ -332,6 +338,40 @@ $('#vol').onclick = () => {
 };
 const v = params.get('v');
 setVolume(Object.hasOwn(VOLUMES, v) ? v : volume, false);
+
+// ---- Accent color (URL ?c= overrides for this visit) ----
+// Material 600 shades: same weight across hues so they sit well together.
+// `on` is the icon/text color used on top of the accent.
+const COLORS = {
+  red:    { bg: '#e53935', on: '#fff' },
+  orange: { bg: '#fb8c00', on: '#111' },
+  yellow: { bg: '#fdd835', on: '#111' },
+  green:  { bg: '#43a047', on: '#fff' },
+  blue:   { bg: '#1e88e5', on: '#fff' },
+  purple: { bg: '#8e24aa', on: '#fff' },
+  gray:   { bg: '#757575', on: '#fff' },
+  white:  { bg: '#eeeeee', on: '#111' },
+};
+let color = 'red';
+try { const saved = localStorage.getItem('color'); if (Object.hasOwn(COLORS, saved)) color = saved; } catch {}
+for (const [name, { bg }] of Object.entries(COLORS)) {
+  const b = document.createElement('button');
+  b.dataset.c = name; b.style.setProperty('--c', bg);
+  b.setAttribute('role', 'radio'); b.setAttribute('aria-label', name); b.title = name;
+  $('.colors').append(b);
+}
+function setColor(c, save = true) {
+  color = c;
+  if (save) try { localStorage.setItem('color', c); } catch {}
+  document.documentElement.style.setProperty('--accent', COLORS[c].bg);
+  document.documentElement.style.setProperty('--on-accent', COLORS[c].on);
+  document.querySelectorAll('.colors button').forEach(b => b.setAttribute('aria-checked', b.dataset.c === c));
+}
+$('.colors').onclick = e => {
+  const b = e.target.closest('button'); if (b) setColor(b.dataset.c);
+};
+const c = params.get('c');
+setColor(Object.hasOwn(COLORS, c) ? c : color, false);
 
 // ---- Full screen ----
 $('#fs').onclick = () => document.fullscreenElement

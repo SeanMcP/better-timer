@@ -12,6 +12,7 @@
 - Pause, reset, cancel
 - Classic Casio alarm
 - Volume: loud, quiet, silent
+- Accent colors: red, orange, yellow, green, blue, purple, gray, white
 - Remembers your settings
 - Shareable links
 - Dead simple
@@ -21,5 +22,6 @@
 - `t`: time in seconds
 - `m`: `countdown` or `visual`
 - `v`: `loud`, `quiet`, or `silent`
+- `c`: `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `gray`, or `white`
 
-Example: `?t=300&m=visual&v=quiet`
+Example: `?t=300&m=visual&v=quiet&c=blue`
